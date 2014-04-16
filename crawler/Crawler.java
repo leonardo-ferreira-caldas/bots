@@ -17,6 +17,7 @@
 
 package crawler;
 
+import java.sql.Timestamp;
 import java.util.ArrayList;
 
 
@@ -43,10 +44,14 @@ public class Crawler extends Thread {
 		// method must be override
 	}
 	
+	public void unableToAcess(String url) {
+		// method must be override
+	}
+	
 	public void run() {
 		
 		try {
-			
+
 			onStart();
 		
 			ArrayList<String> linksToCrawl = provider();
@@ -58,10 +63,19 @@ public class Crawler extends Thread {
 			for (String url : linksToCrawl) {
 				
 				beforeVisit(url);
-				WebUrl webUrl = new WebUrl(url);
-				HttpRequest request = webUrl.sendHttpRequest();
-				afterVisit(request);
 				
+				try {
+					WebUrl webUrl = new WebUrl(url);
+					HttpRequest request = webUrl.sendHttpRequest();
+					
+					afterVisit(request);
+					
+				} catch (Exception e) {
+					
+					unableToAcess(url);
+					
+				}
+
 			}
 			
 			onFinish();

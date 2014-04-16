@@ -29,22 +29,26 @@ import java.util.regex.Pattern;
 
 public class Spider extends Crawler {
 
-	private final static Pattern FILTERS = Pattern.compile(".*(\\.(css|js|bmp|gif|jpe?g" + "|png|tiff?|mid|mp2|mp3|mp4"
-			+ "|wav|avi|mov|mpeg|ram|m4v|pdf" + "|rm|smil|wmv|swf|wma|zip|rar|gz))$");
+	private final static String[] FILTERS = new String[] {"css", "js", "bmp", "gif", "jpg", "jpeg", "png", "tiff", "mid", "mp2", "mp3", "mp4", "wav", "avi", "mov", "mpeg", "ram", "m4v", "pdf" + "", "rm", "smil", "wmv", "swf", "wma", "zip", "rar", "gz"};
+//	private final static Pattern FILTERS = Pattern.compile(".*(\\.(css|js|bmp|gif|jpe?g" + "|png|tiff?|mid|mp2|mp3|mp4"
+//			+ "|wav|avi|mov|mpeg|ram|m4v|pdf" + "|rm|smil|wmv|swf|wma|zip|rar|gz))$");
 
 	private int storeId;
 	private ResultSet store;
 	private Connection conn;
+	private int threadId;
+	private long benchmark;
 	
-	public Spider(int storeId) {
+	public Spider(int storeId, int threadId) {
 		this.storeId = storeId;
+		this.threadId = threadId;
 	}
 
 	@Override
 	public void onStart() {
 		try {
 			
-			System.out.println("Spider started.");
+			benchmark = System.currentTimeMillis();
 			
 			conn = Database.get();	
 			
@@ -63,14 +67,15 @@ public class Spider extends Crawler {
 	@Override
 	public void onFinish() {
 		try {
-			
-			System.out.println("Spider finished.");
 
-			Spider bot = new Spider(this.storeId);
+			Spider bot = new Spider(this.storeId, this.threadId);
 			ExecutorService executor = Executors.newSingleThreadExecutor();
     		executor.execute(bot);
 			
 			conn.close();
+			
+			benchmark = (System.currentTimeMillis() - benchmark) / 1000;
+			System.out.println("Spider " + this.threadId + " executed in " + this.benchmark + " seconds.");
 			
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -78,10 +83,29 @@ public class Spider extends Crawler {
 	}
 	
 	@Override
+	public void unableToAcess(String url) {
+	
+		PreparedStatement update;
+		
+		try {
+			
+			update = conn.prepareStatement("UPDATE page SET in_use = 0, was_scanned = 0 WHERE url = ? AND fk_store = ?");
+			update.setString(1, url);
+			update.setInt(2, store.getInt("id_store"));
+			update.executeUpdate();
+			
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+	}
+	
+	@Override
 	public ArrayList<String> provider() {
 		
 		try {
-
+			
 			PreparedStatement exists = conn.prepareStatement("SELECT id_page FROM page WHERE fk_store = ?");
 			exists.setInt(1, store.getInt("id_store"));
 			ResultSet found = exists.executeQuery();
@@ -98,22 +122,27 @@ public class Spider extends Crawler {
 
 			} else {
 				
-				PreparedStatement select = conn.prepareStatement("SELECT id_page, url FROM page WHERE fk_store = ? AND was_scanned = 0 AND in_use = 0 LIMIT 0, 20");
+				PreparedStatement select = conn.prepareStatement("SELECT id_page, url FROM page WHERE fk_store = ? AND was_scanned = 0 AND in_use = 0 LIMIT 0, 10");
 				select.setInt(1, store.getInt("id_store"));
 				ResultSet rows = select.executeQuery();
 				
+				String pageIds = new String();
+				
 				while (rows.next()) {
-					
-					PreparedStatement update = conn.prepareStatement("UPDATE page SET in_use = 1 WHERE id_page = ?");
-					update.setInt(1, rows.getInt("id_page"));
-					update.executeUpdate();
+					if (pageIds.isEmpty()) {
+						pageIds = "" + rows.getInt("id_page");
+					} else {
+						pageIds += "," + rows.getInt("id_page");
+					}
 					
 					links.add(rows.getString("url"));
 				}
+
+				PreparedStatement update = conn.prepareStatement("UPDATE page SET in_use = 1 WHERE id_page IN(" + pageIds + ")");
+				update.executeUpdate();
+				
 				
 			}
-			
-			System.out.println("Provider requested. Found " + links.size() + " links.");
 			
 			return links;
 			
@@ -134,51 +163,47 @@ public class Spider extends Crawler {
 	public void afterVisit(HttpRequest request) {
 		
 		try {
-
+			
 			for (String url : request.getFoundLinks()) {
-				
-				if (FILTERS.matcher(url).matches()) {
+					
+				//if (FILTERS.matcher(url).matches()) {
+				if (verificarExtesao(url)) {
 					continue;
 				} else if (!url.contains(store.getString("domains"))) {
 					continue;
 				}
 				
-				PreparedStatement exists = conn.prepareStatement("SELECT id_page FROM page WHERE url = ?");
-				exists.setString(1, url);
-				ResultSet found = exists.executeQuery();
+				try {
+
+					PreparedStatement stmt = conn.prepareStatement("INSERT INTO page(fk_store, url, was_scanned, is_product, in_use, last_visit) VALUES(?, ?, ?, ?, ?, ?)");
+					stmt.setInt(1, store.getInt("id_store"));
+					stmt.setString(2, url);	
+					stmt.setInt(3, 0);
+					
+					Pattern isProduct = Pattern.compile(store.getString("product_pattern"));
+					
+					if (isProduct.matcher(url).matches()) {
+						stmt.setInt(4, 1);
+					} else { 
+						stmt.setInt(4, 0);
+					}
+					
+					stmt.setInt(5, 0);
+					stmt.setTimestamp(6, new Timestamp(System.currentTimeMillis()));
+					stmt.execute();
 				
-				found.last();
-			    int size = found.getRow();
-			    found.beforeFirst();
-				
-				if (size > 0) {
-					continue;
+				} catch (Exception e) {
+					// dead lock exception, do nothing
 				}
-				
-				PreparedStatement stmt = conn.prepareStatement("INSERT INTO page(fk_store, url, was_scanned, is_product, in_use, last_visit) VALUES(?, ?, ?, ?, ?, ?)");
-				stmt.setInt(1, store.getInt("id_store"));
-				stmt.setString(2, url);
-				stmt.setInt(3, 0);
-				
-				Pattern isProduct = Pattern.compile(store.getString("product_pattern"));
-				
-				if (isProduct.matcher(url).matches()) {
-					stmt.setInt(4, 1);
-				} else {
-					stmt.setInt(4, 0);
-				}
-				
-				stmt.setInt(5, 0);
-				stmt.setTimestamp(6, new Timestamp(System.currentTimeMillis()));
-				stmt.execute();
 				
 			}
-			
+
 			PreparedStatement update = conn.prepareStatement("UPDATE page SET in_use = 0, was_scanned = 1 WHERE url = ? AND fk_store = ?");
 			update.setString(1, request.getUrl());
 			update.setInt(2, store.getInt("id_store"));
 			update.executeUpdate();
-		
+			
+
 		} catch (Exception e) {
 			
 			e.printStackTrace();
@@ -186,6 +211,17 @@ public class Spider extends Crawler {
 		}
 		
 	}
-
-
+	
+	private boolean verificarExtesao(String url) {
+		
+		for (String extensao: FILTERS) {
+			if (url.endsWith("." + extensao)) {
+				return true;
+			}
+		}
+		
+		return false;
+		
+	}
+	
 }

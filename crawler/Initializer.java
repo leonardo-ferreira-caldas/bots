@@ -4,7 +4,6 @@ package crawler;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -27,7 +26,7 @@ public class Initializer {
     		
     		for (int i = 0; i < result.getInt("threads"); i++) {
     			
-    			Spider bot = new Spider(result.getInt("id_store"));
+    			Spider bot = new Spider(result.getInt("id_store"), i);
         		
         		ExecutorService executor = Executors.newSingleThreadExecutor();
         		executor.execute(bot);
