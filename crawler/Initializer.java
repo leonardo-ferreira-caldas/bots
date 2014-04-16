@@ -24,12 +24,13 @@ public class Initializer {
     	
     	while (result.next()) {
     		
+    		ExecutorService executor = Executors.newFixedThreadPool(result.getInt("threads"));
+    		
     		for (int i = 0; i < result.getInt("threads"); i++) {
     			
     			Spider bot = new Spider(result.getInt("id_store"), i);
         		
-        		ExecutorService executor = Executors.newSingleThreadExecutor();
-        		executor.execute(bot);
+        		executor.submit(bot);
         		
         		Thread.sleep(2000);
         		

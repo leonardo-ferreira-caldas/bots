@@ -17,7 +17,6 @@
 
 package crawler;
 
-import java.sql.Timestamp;
 import java.util.ArrayList;
 
 
